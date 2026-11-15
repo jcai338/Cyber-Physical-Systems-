@@ -9,7 +9,7 @@ def main():
 
     # 2. Initialize the YOLO hand shape detector
     # (Using standard YOLOv8 nano model as a baseline template)
-    detector = HandShapeDetector(model_path="yolov8n.pt")
+    detector = HandShapeDetector(model_path="hands"".pt")
 
     print("RPS-1 System Running. Press 'q' in the video window to exit.")
 
