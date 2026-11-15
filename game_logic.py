@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Core winner-determination logic for a Rock-Paper-Scissors round."""
 
 from typing import Literal
@@ -39,3 +40,6 @@ def determine_winner(player_move: str, opponent_move: str) -> Winner:
     if _BEATS[player] == opponent:
         return "player"
     return "opponent"
+=======
+
+>>>>>>> 739c31c99c940b0188cdb49ffee4a478bf96fcdf
