@@ -1,5 +1,5 @@
 from ultralytics import YOLO
-import cv2
+from ultralytics.engine.results import Results
 
 class HandShapeDetector:
     """
@@ -25,13 +25,16 @@ class HandShapeDetector:
             tuple: (annotated_frame, detections_data)
         """
         # Run YOLO inference on the frame (verbose=False suppresses excessive console logs)
-        results = self.model(frame, verbose=False)
+        results = iter(self.model(frame, verbose=False))
+        result = next(results)
+        if not isinstance(result, Results):
+            raise TypeError("YOLO inference did not return detection results.")
 
         # Plot the detection bounding boxes, classes, and confidence scores onto the frame
-        annotated_frame = results[0].plot()
+        annotated_frame = result.plot()
 
         # Extract useful detection details if needed for game logic later
-        # results[0].boxes contains coordinates, confidence, and class IDs
-        detections = results[0].boxes
+        # result.boxes contains coordinates, confidence, and class IDs
+        detections = result.boxes
 
         return annotated_frame, detections

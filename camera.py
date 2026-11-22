@@ -12,9 +12,14 @@ class CameraStream:
 
     def start(self):
         """Initializes the video capture object."""
+        if self.cap is not None:
+            self.cap.release()
+
         self.cap = cv2.VideoCapture(self.camera_index)
         
         if not self.cap.isOpened():
+            self.cap.release()
+            self.cap = None
             raise RuntimeError(
                 f"Error: Could not open webcam at index {self.camera_index}. "
                 "Please check if another application is using the camera or try a different index."
@@ -24,6 +29,42 @@ class CameraStream:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         print(f"Webcam initialized successfully at index {self.camera_index}.")
+    
+    def assign_teams(frame, detections):
+        """
+        Draws a horizontal divider and sorts detected hand gestures into top and bottom teams.
+        
+        Args:
+            frame: The OpenCV video frame.
+            detections: List of dicts containing 'gesture' and 'bbox' (x_min, y_min, x_max, y_max).
+            
+        Returns:
+            tuple: (top_team_hands, bottom_team_hands)
+        """
+        h, w, _ = frame.shape
+        mid_y = h // 2
+
+        # 1. Draw the dividing line across the middle of the screen
+        cv2.line(frame, (0, mid_y), (w, mid_y), (0, 255, 255), 2)
+        cv2.putText(frame, "OPPONENT (TOP)", (20, mid_y - 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        cv2.putText(frame, "YOU (BOTTOM)", (20, mid_y + 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
+        top_team = []
+        bottom_team = []
+
+        # 2. Sort each detected hand into a team based on its vertical center
+        for hand in detections:
+            x_min, y_min, x_max, y_max = hand["bbox"]
+            center_y = (y_min + y_max) // 2
+
+            if center_y < mid_y:
+                top_team.append(hand["gesture"])
+            else:
+                bottom_team.append(hand["gesture"])
+
+        return top_team, bottom_team
 
     def get_frame(self, mirror=True):
         """
@@ -40,7 +81,7 @@ class CameraStream:
             return False, None
 
         ret, frame = self.cap.read()
-        if not ret:
+        if not ret or frame is None:
             print("Error: Failed to grab frame from webcam.")
             return False, None
 
@@ -54,8 +95,12 @@ class CameraStream:
         """Safely releases the webcam resource and closes any active windows."""
         if self.cap is not None:
             self.cap.release()
+            self.cap = None
             print("Webcam released and resources cleaned up.")
-        cv2.destroyAllWindows()
+        try:
+            cv2.destroyAllWindows()
+        except cv2.error:
+            pass
 
 
 # --- Standalone Test Block ---
@@ -69,17 +114,22 @@ if __name__ == "__main__":
         
         while True:
             success, frame = cam.get_frame(mirror=True)
-            if not success:
+            if not success or frame is None:
                 break
 
             # Display the live stream
             cv2.imshow(window_name, frame)
 
             # Exit when 'q' is pressed or the user closes the window.
-            if (
-                cv2.waitKey(1) & 0xFF == ord('q')
-                or cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1
-            ):
+            key_pressed = cv2.waitKey(1) & 0xFF
+            try:
+                window_visible = cv2.getWindowProperty(
+                    window_name, cv2.WND_PROP_VISIBLE
+                )
+            except cv2.error:
+                window_visible = 0
+
+            if key_pressed == ord('q') or window_visible < 1:
                 break
                 
     finally:
