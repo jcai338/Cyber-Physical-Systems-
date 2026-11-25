@@ -93,6 +93,9 @@ class HandShapeDetector:
 
                 detections.append({
                     "gesture": gesture,
+                    "bbox": (x_min, y_min, x_max, y_max),
+                    "center_x": (x_min + x_max) // 2,
+                    "center_y": (y_min + y_max) // 2,
                 })
 
         return annotated_frame, detections
