@@ -38,3 +38,5 @@ class HandShapeDetector:
         detections = result.boxes
 
         return annotated_frame, detections
+
+    

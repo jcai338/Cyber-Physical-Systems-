@@ -9,14 +9,17 @@ from mediapipe.tasks.python import vision
 class HandShapeDetector:
     """
     Handles computer vision hand recognition and team assignment using MediaPipe
-    for the RPS-1 system.
+    for the RPS-1 system. Supports both VIDEO (webcam) and IMAGE (static file) modes.
     """
-    def __init__(self, model_path="hand_landmarker.task", num_hands=4):
-        print(f"Loading MediaPipe HandLandmarker from {model_path}...")
+
+    def __init__(self, model_path="hand_landmarker.task", num_hands=4, running_mode="VIDEO"):
+        mode = vision.RunningMode.VIDEO if running_mode.upper() == "VIDEO" else vision.RunningMode.IMAGE
+        self.running_mode = mode
+
         base_options = python.BaseOptions(model_asset_path=model_path)
         options = vision.HandLandmarkerOptions(
             base_options=base_options,
-            running_mode=vision.RunningMode.VIDEO,
+            running_mode=mode,
             num_hands=num_hands,
             min_hand_detection_confidence=0.5,
             min_hand_presence_confidence=0.5,
@@ -25,16 +28,17 @@ class HandShapeDetector:
         self.detector = vision.HandLandmarker.create_from_options(options)
         self.last_timestamp_ms = 0
 
-    def _dist(self, a, b):
-        return math.hypot(a.x - b.x, a.y - b.y)
+    def _dist(self, a, b, w: int, h: int) -> float:
+        # Scale by image width/height so distance is rotation-invariant on non-square frames
+        return math.hypot((a.x - b.x) * w, (a.y - b.y) * h)
 
-    def _classify_rps(self, landmarks):
+    def _classify_rps(self, landmarks, w: int, h: int) -> str:
         wrist = landmarks[0]
+        finger_joints = ((8, 6), (12, 10), (16, 14), (20, 18))
         fingers = [
-            self._dist(wrist, landmarks[8]) > self._dist(wrist, landmarks[6]) * 1.15,   # Index
-            self._dist(wrist, landmarks[12]) > self._dist(wrist, landmarks[10]) * 1.15, # Middle
-            self._dist(wrist, landmarks[16]) > self._dist(wrist, landmarks[14]) * 1.15, # Ring
-            self._dist(wrist, landmarks[20]) > self._dist(wrist, landmarks[18]) * 1.15, # Pinky
+            self._dist(wrist, landmarks[tip], w, h)
+            > self._dist(wrist, landmarks[joint], w, h) * 1.15
+            for tip, joint in finger_joints
         ]
         index_ext, middle_ext, ring_ext, pinky_ext = fingers
         extended_count = sum(fingers)
@@ -48,29 +52,25 @@ class HandShapeDetector:
         return "Unknown"
 
     def detect_hands(self, frame):
-        """
-        Detects hands in the frame and classifies each as Rock, Paper, or Scissors.
-
-        Returns:
-            tuple: (annotated_frame, detections_list)
-        """
+        """Detects hands in a BGR frame and classifies each as Rock, Paper, or Scissors."""
         annotated_frame = frame.copy()
+        h, w, _ = annotated_frame.shape
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
 
-        # Ensure timestamps strictly increase for MediaPipe VIDEO mode
-        timestamp_ms = int(time.time() * 1000)
-        if timestamp_ms <= self.last_timestamp_ms:
-            timestamp_ms = self.last_timestamp_ms + 1
-        self.last_timestamp_ms = timestamp_ms
+        if self.running_mode == vision.RunningMode.VIDEO:
+            timestamp_ms = int(time.time() * 1000)
+            if timestamp_ms <= self.last_timestamp_ms:
+                timestamp_ms = self.last_timestamp_ms + 1
+            self.last_timestamp_ms = timestamp_ms
+            result = self.detector.detect_for_video(mp_image, timestamp_ms)
+        else:
+            result = self.detector.detect(mp_image)
 
-        result = self.detector.detect_for_video(mp_image, timestamp_ms)
-        h, w, _ = annotated_frame.shape
         detections = []
-
         if result.hand_landmarks:
             for idx, hand_lms in enumerate(result.hand_landmarks):
-                gesture = self._classify_rps(hand_lms)
+                gesture = self._classify_rps(hand_lms, w, h)
 
                 xs = [int(lm.x * w) for lm in hand_lms]
                 ys = [int(lm.y * h) for lm in hand_lms]
@@ -83,7 +83,7 @@ class HandShapeDetector:
                 cv2.rectangle(annotated_frame, (x_min, y_min), (x_max, y_max), (255, 180, 0), 2)
                 cv2.putText(
                     annotated_frame,
-                    f"Hand {idx + 1}: {gesture}",
+                    f"{gesture}",
                     (x_min, max(20, y_min - 10)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.7,
@@ -93,14 +93,14 @@ class HandShapeDetector:
 
                 detections.append({
                     "gesture": gesture,
-                    "bbox": (x_min, y_min, x_max, y_max),
                 })
 
         return annotated_frame, detections
 
     def assign_teams(self, frame, detections):
         """
-        Draws a horizontal divider and sorts detected hand gestures into top and bottom teams.
+        Sorts detected hands into top (Opponent) and bottom (You) teams,
+        ordered left-to-right so index 0 = Left Hand and index 1 = Right Hand.
         """
         h, w, _ = frame.shape
         mid_y = h // 2
@@ -111,19 +111,15 @@ class HandShapeDetector:
         cv2.putText(frame, "YOU (BOTTOM)", (20, mid_y + 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        top_team = []
-        bottom_team = []
+        top_hands = [d for d in detections if d["center_y"] < mid_y]
+        bottom_hands = [d for d in detections if d["center_y"] >= mid_y]
 
-        for hand in detections:
-            x_min, y_min, x_max, y_max = hand["bbox"]
-            center_y = (y_min + y_max) // 2
+        # Sort left-to-right by center_x
+        top_hands.sort(key=lambda d: d["center_x"])
+        bottom_hands.sort(key=lambda d: d["center_x"])
 
-            if center_y < mid_y:
-                top_team.append(hand["gesture"])
-            else:
-                bottom_team.append(hand["gesture"])
-
-        return top_team, bottom_team
+        return top_hands, bottom_hands
 
     def close(self):
         self.detector.close()
+

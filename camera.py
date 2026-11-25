@@ -29,42 +29,6 @@ class CameraStream:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         print(f"Webcam initialized successfully at index {self.camera_index}.")
-    
-    def assign_teams(frame, detections):
-        """
-        Draws a horizontal divider and sorts detected hand gestures into top and bottom teams.
-        
-        Args:
-            frame: The OpenCV video frame.
-            detections: List of dicts containing 'gesture' and 'bbox' (x_min, y_min, x_max, y_max).
-            
-        Returns:
-            tuple: (top_team_hands, bottom_team_hands)
-        """
-        h, w, _ = frame.shape
-        mid_y = h // 2
-
-        # 1. Draw the dividing line across the middle of the screen
-        cv2.line(frame, (0, mid_y), (w, mid_y), (0, 255, 255), 2)
-        cv2.putText(frame, "OPPONENT (TOP)", (20, mid_y - 15),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-        cv2.putText(frame, "YOU (BOTTOM)", (20, mid_y + 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-
-        top_team = []
-        bottom_team = []
-
-        # 2. Sort each detected hand into a team based on its vertical center
-        for hand in detections:
-            x_min, y_min, x_max, y_max = hand["bbox"]
-            center_y = (y_min + y_max) // 2
-
-            if center_y < mid_y:
-                top_team.append(hand["gesture"])
-            else:
-                bottom_team.append(hand["gesture"])
-
-        return top_team, bottom_team
 
     def get_frame(self, mirror=True):
         """
